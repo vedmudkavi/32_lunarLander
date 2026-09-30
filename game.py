@@ -1,5 +1,8 @@
+import io
 import math
 import random
+import struct
+import wave
 import pygame
 
 WIDTH, HEIGHT = 800, 600
@@ -18,8 +21,36 @@ def ship_color(fuel_ratio):
 
 
 def on_landing(score):
-    """Called after a successful landing with the points just earned; add fireworks or bonuses here."""
-    pass
+    """Play a generated chime; landings worth over 400 points get a brighter fanfare."""
+    if not pygame.mixer:
+        return
+    try:
+        audio = pygame.mixer.get_init()
+        if audio is None:
+            return
+        sample_rate = audio[0]
+        # A normal x1 pad awards at most 400 points.
+        notes = (784, 988, 1175, 1568) if score > 400 else (523, 659, 784)
+        note_samples = int(sample_rate * 0.1)
+        fade_samples = max(1, int(sample_rate * 0.01))
+        samples = []
+        for frequency in notes:
+            for i in range(note_samples):
+                # Fade each note in and out to avoid clicks, at modest volume.
+                envelope = min(1.0, i / fade_samples,
+                               (note_samples - 1 - i) / fade_samples)
+                samples.append(int(8000 * envelope * math.sin(math.tau * frequency * i / sample_rate)))
+        with io.BytesIO() as buffer:
+            with wave.open(buffer, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                wav.writeframes(struct.pack(f"<{len(samples)}h", *samples))
+            buffer.seek(0)
+            pygame.mixer.Sound(file=buffer).play()
+    except pygame.error:
+        # Audio is optional: a failed playback must not interrupt the landing.
+        return
 
 
 def bonus_life_threshold():
